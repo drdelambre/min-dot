@@ -1,4 +1,6 @@
-var Base = (typeof window === 'undefined' ? require('mocha').reporters.Base : require('./base')),
+var PACKAGE_KEY = 'min-dot',
+    fs = (typeof window === 'undefined' ? require('fs') : null),
+    Base = (typeof window === 'undefined' ? require('mocha').reporters.Base : require('./base')),
     colors = {
         'pending': [37, 39],
         'error': [91, 39],
@@ -84,10 +86,11 @@ Suite.prototype.draw = function(depth) {
 \**/
 function Fail(title, message) {
     this.title = title;
-    this.messege = message;
+    this.message = message;
 }
 Fail.prototype.draw = function(depth) {
-    return display.color(Array(depth).join('    ') + this.title + '\n', 'fail');
+    return display.color(Array(depth).join('    ') + this.title + '\n', 'fail') +
+        display.color(Array(depth + 1).join('    ') + this.message + '\n', 'error');
 };
 
 /**\
@@ -158,12 +161,18 @@ function DotMatrix(total_tests, terminal_width) {
             fails++;
             draw();
         },
-        close: function() {
-            var last_line = '\u001b[0F\u001b[0C';
+        close: function(cov) {
+            var last_line = '\u001b[0F';
 
             last_line += display.bold(passes) + display.color('passed', 'pending');
             last_line += '  ';
             last_line += display.bold(fails) + display.color('failed', 'pending');
+            last_line += '  ';
+            if(cov.hits === 0 || cov.soc === 0){
+                last_line += display.color('no coverage', 'pending');
+            } else {
+                last_line += display.bold(Math.round(cov.hits/cov.soc*100) + '%') + display.color('coverage', 'pending');
+            }
             last_line += '\n';
 
             display.print(last_line);
@@ -217,14 +226,82 @@ function MinDot(runner) {
     });
 
     runner.on('end', function() {
-        dot_matrix.close();
+        var options = MinDot.prototype._get_options(),
+            cov = MinDot.prototype._clean_coverage();
+
+        dot_matrix.close(cov);
 
         for (var ni = 0; ni < root_suites.length; ni++) {
             display.print(root_suites[ni].draw());
         }
 
         display.print('\n\u001b[?25h');
+
+        if(options.threshold){
+            var threshold;
+            if(cov.hits === 0 || cov.soc === 0){
+                threshold = 0;
+            } else {
+                threshold = Math.floor(cov.hits/cov.soc) * 100;
+            }
+            if(threshold < options.threshold){
+                process.exit(1);
+                return false;
+            }
+        }
+
+        return true;
     });
+}
+MinDot.prototype._clean_coverage = function(){
+    var cov = global._$jscoverage,
+        total_hits = 0,
+        total_soc = 0,
+        ni, no;
+
+    if(!cov){
+        return {
+            hits: 0,
+            soc: 0
+        };
+    }
+
+    for(ni in cov){
+        for(no = 0; no < cov[ni].source.length; no++){
+            if(cov[ni][no] === undefined){
+                continue;
+            }
+            if(cov[ni][no] !== 0){
+                total_hits++;
+            }
+            total_soc++;
+        }
+    }
+
+    return {
+        hits: total_hits,
+        soc: total_soc
+    };
+};
+MinDot.prototype._get_options = function(){
+    var path = process.cwd() + '/package.json',
+        pakage, config;
+
+    if(!fs || !fs.existsSync(path)){
+        return {};
+    }
+
+    pakage = JSON.parse(fs.readFileSync(path, 'utf8'));
+
+    if(!pakage){
+        return {};
+    }
+
+    if (!pakage.config || !pakage.config[PACKAGE_KEY]){
+        return {};
+    }
+
+    return pakage.config[PACKAGE_KEY];
 }
 
 exports = module.exports = MinDot;
