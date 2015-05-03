@@ -1,6 +1,6 @@
 {
   "name": "min-dot",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "colored dots that take up less space",
   "author": "Alex Boatwright <drdelambre@gmail.com>",
   "license": "MIT",
